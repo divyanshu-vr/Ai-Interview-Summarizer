@@ -133,15 +133,22 @@ const useTranscription = () => {
    * Stop speech recognition
    */
   const stopListening = useCallback(() => {
-    if (!speechServiceRef.current || !isListening) {
+    if (!speechServiceRef.current) {
       return false;
     }
 
     setError(null);
     
     try {
+      // Force stop regardless of current state to prevent race conditions
       const success = speechServiceRef.current.stopListening();
       sessionStartTimeRef.current = null;
+      
+      // Force update local state immediately
+      setIsListening(false);
+      setIsPaused(false);
+      setCurrentTranscript('');
+      
       return success;
     } catch (err) {
       setError({
@@ -149,9 +156,15 @@ const useTranscription = () => {
         error: err,
         timestamp: Date.now()
       });
+      
+      // Still force update state even if there was an error
+      setIsListening(false);
+      setIsPaused(false);
+      setCurrentTranscript('');
+      
       return false;
     }
-  }, [isListening]);
+  }, []); // Remove isListening dependency to prevent race conditions
 
   /**
    * Pause speech recognition
@@ -228,6 +241,47 @@ const useTranscription = () => {
   }, []);
 
   /**
+   * Force stop and cleanup - more aggressive than regular stop
+   */
+  const forceStop = useCallback(async () => {
+    if (!speechServiceRef.current) {
+      return false;
+    }
+
+    setError(null);
+    
+    // Force update state immediately to prevent UI hanging
+    setIsListening(false);
+    setIsPaused(false);
+    setCurrentTranscript('');
+    sessionStartTimeRef.current = null;
+    
+    try {
+      // Force cleanup the service with timeout
+      const cleanupPromise = speechServiceRef.current.cleanup();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Force stop timeout')), 5000)
+      );
+      
+      await Promise.race([cleanupPromise, timeoutPromise]);
+      
+      return true;
+    } catch (err) {
+      console.warn('Force stop failed or timed out:', err);
+      setError({
+        message: 'Failed to force stop speech recognition',
+        error: err,
+        timestamp: Date.now()
+      });
+      
+      // Nullify the service reference to prevent further issues
+      speechServiceRef.current = null;
+      
+      return false;
+    }
+  }, []);
+
+  /**
    * Get session duration in seconds
    */
   const getSessionDuration = useCallback(() => {
@@ -239,8 +293,21 @@ const useTranscription = () => {
   useEffect(() => {
     return () => {
       if (speechServiceRef.current) {
-        speechServiceRef.current.stopListening();
-        speechServiceRef.current = null;
+        try {
+          // Try to stop gracefully first
+          speechServiceRef.current.stopListening();
+          
+          // Force cleanup after a short delay if needed
+          setTimeout(() => {
+            if (speechServiceRef.current) {
+              speechServiceRef.current.cleanup().catch(console.warn);
+            }
+          }, 100);
+        } catch (error) {
+          console.warn('Error during unmount cleanup:', error);
+        } finally {
+          speechServiceRef.current = null;
+        }
       }
     };
   }, []);
@@ -264,6 +331,7 @@ const useTranscription = () => {
     resumeListening,
     clearError,
     clearTranscript,
+    forceStop,
     
     // Utilities
     getAllSegments,

@@ -229,11 +229,15 @@ class SystemAudioTranscriber {
   /**
    * Cleanup resources
    */
-  cleanup() {
+  async cleanup() {
     this.stopTranscription();
     
     if (this.audioContext && this.audioContext.state !== 'closed') {
-      this.audioContext.close();
+      try {
+        await this.audioContext.close();
+      } catch (error) {
+        console.warn('Error closing audio context:', error);
+      }
       this.audioContext = null;
     }
     

@@ -4,7 +4,7 @@
  */
 
 // Import will be handled dynamically to avoid bundling issues
-import SystemAudioTranscriber from './systemAudioTranscriber.js';
+import SystemAudioTranscriber from "./systemAudioTranscriber.js";
 
 class SpeechService {
   constructor() {
@@ -13,22 +13,22 @@ class SpeechService {
     this.audioProcessor = null;
     this.isListening = false;
     this.isPaused = false;
-    this.currentTranscript = '';
+    this.currentTranscript = "";
     this.transcriptSegments = [];
     this.sessionStartTime = null;
     this.lastSegmentTime = null;
     this.audioStream = null;
-    this.processingMode = 'webspeech'; // 'webspeech' or 'whisper'
-    
+    this.processingMode = "webspeech"; // 'webspeech' or 'whisper'
+
     // Callbacks
     this.onTranscriptUpdate = null;
     this.onSegmentComplete = null;
     this.onError = null;
     this.onStatusChange = null;
-    
+
     // Configuration
     this.config = {
-      language: 'en-US',
+      language: "en-US",
       continuous: true,
       interimResults: true,
       maxAlternatives: 1,
@@ -36,10 +36,10 @@ class SpeechService {
       confidenceThreshold: 0.7,
       maxRetries: 3,
       retryDelayMs: 1000,
-      whisperModel: 'tiny.en', // tiny.en, base.en, small.en
-      chunkDurationMs: 5000 // Process audio in 5-second chunks
+      whisperModel: "tiny.en", // tiny.en, base.en, small.en
+      chunkDurationMs: 5000, // Process audio in 5-second chunks
     };
-    
+
     // State tracking
     this.retryCount = 0;
     this.lastError = null;
@@ -48,7 +48,16 @@ class SpeechService {
     this.isProcessingAudio = false;
     this.processingTimeout = null;
     this.isStartingListening = false;
+
+    // Real-time update optimization
+    this.lastInterimUpdate = 0;
+    this.interimUpdateThrottle = 100; // Throttle interim updates to 100ms
+    this.pendingInterimUpdate = null;
+    this.lastInterimText = "";
     
+    // Stop control flag
+    this.isStopping = false;
+
     // Bind methods to maintain context
     this.handleResult = this.handleResult.bind(this);
     this.handleError = this.handleError.bind(this);
@@ -68,14 +77,14 @@ class SpeechService {
       // Determine processing mode based on audio stream availability
       if (audioStream) {
         this.audioStream = audioStream;
-        this.processingMode = 'whisper';
+        this.processingMode = "whisper";
         return await this.initializeWhisperMode();
       } else {
-        this.processingMode = 'webspeech';
+        this.processingMode = "webspeech";
         return await this.initializeWebSpeechMode();
       }
     } catch (error) {
-      this.handleServiceError('Failed to initialize speech recognition', error);
+      this.handleServiceError("Failed to initialize speech recognition", error);
       return false;
     }
   }
@@ -87,30 +96,31 @@ class SpeechService {
   async initializeWebSpeechMode() {
     // Check for Web Speech API support
     if (!this.isWebSpeechSupported()) {
-      throw new Error('Web Speech API not supported in this browser');
+      throw new Error("Web Speech API not supported in this browser");
     }
 
     // Create speech recognition instance
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
     this.recognition = new SpeechRecognition();
-    
+
     // Configure recognition settings
     this.recognition.continuous = this.config.continuous;
     this.recognition.interimResults = this.config.interimResults;
     this.recognition.lang = this.config.language;
     this.recognition.maxAlternatives = this.config.maxAlternatives;
-    
+
     // Set up event listeners
-    this.recognition.addEventListener('result', this.handleResult);
-    this.recognition.addEventListener('error', this.handleError);
-    this.recognition.addEventListener('start', this.handleStart);
-    this.recognition.addEventListener('end', this.handleEnd);
-    this.recognition.addEventListener('speechstart', this.handleSpeechStart);
-    this.recognition.addEventListener('speechend', this.handleSpeechEnd);
-    
+    this.recognition.addEventListener("result", this.handleResult);
+    this.recognition.addEventListener("error", this.handleError);
+    this.recognition.addEventListener("start", this.handleStart);
+    this.recognition.addEventListener("end", this.handleEnd);
+    this.recognition.addEventListener("speechstart", this.handleSpeechStart);
+    this.recognition.addEventListener("speechend", this.handleSpeechEnd);
+
     this.isInitialized = true;
-    this.notifyStatusChange('initialized');
-    
+    this.notifyStatusChange("initialized");
+
     return true;
   }
 
@@ -120,17 +130,19 @@ class SpeechService {
    */
   async initializeWhisperMode() {
     try {
-      console.log('Initializing system audio transcription mode');
-      
+      console.log("Initializing system audio transcription mode");
+
       // Initialize system audio transcriber
       this.systemAudioTranscriber = new SystemAudioTranscriber();
-      
-      const success = await this.systemAudioTranscriber.initialize(this.audioStream);
-      
+
+      const success = await this.systemAudioTranscriber.initialize(
+        this.audioStream
+      );
+
       if (!success) {
-        throw new Error('Failed to initialize system audio transcriber');
+        throw new Error("Failed to initialize system audio transcriber");
       }
-      
+
       // Set up transcript callback
       this.systemAudioTranscriber.setTranscriptCallback((transcript) => {
         const segment = this.createTranscriptSegment(
@@ -139,34 +151,37 @@ class SpeechService {
           transcript.confidence,
           transcript.isFinal
         );
-        
+
         segment.source = transcript.source;
-        
+
         this.addTranscriptSegment(segment);
         this.notifyTranscriptUpdate(segment);
       });
-      
+
       // Set up error callback
       this.systemAudioTranscriber.setErrorCallback((error) => {
-        this.handleServiceError('System audio transcription error', error);
+        this.handleServiceError("System audio transcription error", error);
       });
-      
+
       this.isInitialized = true;
-      this.notifyStatusChange('initialized');
-      
-      console.log('System audio transcription initialized successfully');
+      this.notifyStatusChange("initialized");
+
+      console.log("System audio transcription initialized successfully");
       return true;
     } catch (error) {
-      console.error('Failed to initialize system audio transcription mode:', error);
-      
+      console.error(
+        "Failed to initialize system audio transcription mode:",
+        error
+      );
+
       // Fallback to Web Speech API if available
       if (this.isWebSpeechSupported()) {
-        console.log('Falling back to Web Speech API');
-        this.processingMode = 'webspeech';
+        console.log("Falling back to Web Speech API");
+        this.processingMode = "webspeech";
         this.audioStream = null;
         return await this.initializeWebSpeechMode();
       }
-      
+
       throw error;
     }
   }
@@ -178,26 +193,26 @@ class SpeechService {
   async initializeWhisperWorker() {
     try {
       // Dynamic import to avoid bundling issues
-      const { default: WhisperService } = await import('./whisperService.js');
+      const { default: WhisperService } = await import("./whisperService.js");
       this.whisperService = new WhisperService();
-      
+
       // Set up error callback
       this.whisperService.setErrorCallback((error) => {
-        console.error('Whisper service error:', error);
-        this.handleServiceError('Whisper processing error', error.error);
+        console.error("Whisper service error:", error);
+        this.handleServiceError("Whisper processing error", error.error);
       });
 
       // Initialize with configured model
       const modelName = `Xenova/whisper-${this.config.whisperModel}`;
       const success = await this.whisperService.initialize(modelName);
-      
+
       if (!success) {
-        throw new Error('Failed to initialize Whisper service');
+        throw new Error("Failed to initialize Whisper service");
       }
-      
-      console.log('Whisper service initialized successfully');
+
+      console.log("Whisper service initialized successfully");
     } catch (error) {
-      console.error('Whisper initialization failed:', error);
+      console.error("Whisper initialization failed:", error);
       throw error; // Don't use mock, force real implementation
     }
   }
@@ -208,42 +223,47 @@ class SpeechService {
    */
   async setupAudioProcessor() {
     if (!this.audioStream) {
-      throw new Error('No audio stream available for processing');
+      throw new Error("No audio stream available for processing");
     }
 
     try {
       // Create audio context for processing
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const audioContext = new (window.AudioContext ||
+        window.webkitAudioContext)();
       const source = audioContext.createMediaStreamSource(this.audioStream);
-      
+
       // Create script processor for audio chunks
       const bufferSize = 4096;
-      this.audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-      
+      this.audioProcessor = audioContext.createScriptProcessor(
+        bufferSize,
+        1,
+        1
+      );
+
       this.audioProcessor.onaudioprocess = (event) => {
         try {
           if (this.isListening && !this.isPaused) {
             const inputBuffer = event.inputBuffer;
             const audioData = inputBuffer.getChannelData(0);
-            
+
             // Only process if we're not already processing and have valid data
             if (audioData && audioData.length > 0) {
               this.processAudioChunk(audioData);
             }
           }
         } catch (error) {
-          console.error('Error in audio processing:', error);
+          console.error("Error in audio processing:", error);
           // Don't let audio processing errors crash the entire system
         }
       };
-      
+
       // Connect audio processing pipeline
       source.connect(this.audioProcessor);
       this.audioProcessor.connect(audioContext.destination);
-      
-      console.log('Audio processor setup completed');
+
+      console.log("Audio processor setup completed");
     } catch (error) {
-      console.error('Failed to setup audio processor:', error);
+      console.error("Failed to setup audio processor:", error);
       throw error;
     }
   }
@@ -259,19 +279,22 @@ class SpeechService {
 
     // Add audio data to buffer
     this.audioBuffer.push(new Float32Array(audioData));
-    
+
     // Process buffer when it reaches chunk duration
     const sampleRate = 44100; // Assuming 44.1kHz sample rate
     const chunkSamples = (this.config.chunkDurationMs / 1000) * sampleRate;
-    const totalSamples = this.audioBuffer.reduce((sum, chunk) => sum + chunk.length, 0);
-    
+    const totalSamples = this.audioBuffer.reduce(
+      (sum, chunk) => sum + chunk.length,
+      0
+    );
+
     if (totalSamples >= chunkSamples && !this.processingTimeout) {
       // Use a timeout flag to prevent multiple simultaneous processing
       this.processingTimeout = setTimeout(() => {
         this.processingTimeout = null;
         if (!this.isProcessingAudio && this.audioBuffer.length > 0) {
-          this.processAudioBuffer().catch(error => {
-            console.error('Audio buffer processing failed:', error);
+          this.processAudioBuffer().catch((error) => {
+            console.error("Audio buffer processing failed:", error);
           });
         }
       }, 100); // Small delay to batch audio chunks
@@ -283,29 +306,37 @@ class SpeechService {
    */
   async processAudioBuffer() {
     // Prevent recursive calls and multiple simultaneous processing
-    if (this.isProcessingAudio || this.audioBuffer.length === 0 || !this.whisperService) {
+    if (
+      this.isProcessingAudio ||
+      this.audioBuffer.length === 0 ||
+      !this.whisperService
+    ) {
       return;
     }
 
     // Set processing flag immediately
     this.isProcessingAudio = true;
-    
+
     try {
       // Take a snapshot of current buffer and clear it immediately
       const bufferSnapshot = [...this.audioBuffer];
       this.audioBuffer = [];
-      
+
       // Combine audio chunks from snapshot
-      const totalLength = bufferSnapshot.reduce((sum, chunk) => sum + chunk.length, 0);
-      
+      const totalLength = bufferSnapshot.reduce(
+        (sum, chunk) => sum + chunk.length,
+        0
+      );
+
       // Skip processing if audio is too short
-      if (totalLength < 1000) { // Less than ~0.02 seconds at 44.1kHz
+      if (totalLength < 1000) {
+        // Less than ~0.02 seconds at 44.1kHz
         return;
       }
 
       const combinedAudio = new Float32Array(totalLength);
       let offset = 0;
-      
+
       for (const chunk of bufferSnapshot) {
         combinedAudio.set(chunk, offset);
         offset += chunk.length;
@@ -319,39 +350,44 @@ class SpeechService {
           maxAmplitude = abs;
         }
       }
-      
-      if (maxAmplitude < 0.01) { // Very quiet audio
+
+      if (maxAmplitude < 0.01) {
+        // Very quiet audio
         return;
       }
-      
-              // Processing audio buffer
-      
+
+      // Processing audio buffer
+
       // Transcribe with Whisper
       const result = await this.whisperService.transcribe(combinedAudio, {
-        language: this.config.language.startsWith('en') ? 'english' : 'auto',
-        chunkLength: this.config.chunkDurationMs / 1000
+        language: this.config.language.startsWith("en") ? "english" : "auto",
+        chunkLength: this.config.chunkDurationMs / 1000,
       });
-      
+
       // Process transcription result
-      if (result && result.text && result.text.trim() && result.text.trim().length > 1) {
+      if (
+        result &&
+        result.text &&
+        result.text.trim() &&
+        result.text.trim().length > 1
+      ) {
         const segment = this.createTranscriptSegment(
           result.text.trim(),
           Date.now(),
           result.confidence || 0.8,
           true
         );
-        
+
         // Add processing time info
         segment.processingTime = result.processingTime || 0;
-        segment.source = 'whisper';
-        
+        segment.source = "whisper";
+
         this.addTranscriptSegment(segment);
         this.notifyTranscriptUpdate(segment);
       }
-      
     } catch (error) {
-      console.error('Error processing audio buffer:', error);
-      this.handleServiceError('Whisper processing failed', error);
+      console.error("Error processing audio buffer:", error);
+      this.handleServiceError("Whisper processing failed", error);
     } finally {
       // Always reset processing flag
       this.isProcessingAudio = false;
@@ -392,7 +428,8 @@ class SpeechService {
       this.isStartingListening = true;
 
       // Reset state for new session
-      this.currentTranscript = '';
+      this.isStopping = false;
+      this.currentTranscript = "";
       this.transcriptSegments = [];
       this.sessionStartTime = Date.now();
       this.lastSegmentTime = this.sessionStartTime;
@@ -402,13 +439,13 @@ class SpeechService {
       this.isProcessingAudio = false;
 
       // Start recognition based on processing mode
-      if (this.processingMode === 'whisper') {
+      if (this.processingMode === "whisper") {
         return await this.startWhisperListening();
       } else {
         return await this.startWebSpeechListening();
       }
     } catch (error) {
-      this.handleServiceError('Failed to start speech recognition', error);
+      this.handleServiceError("Failed to start speech recognition", error);
       return false;
     } finally {
       this.isStartingListening = false;
@@ -429,7 +466,7 @@ class SpeechService {
     // Start recognition with error handling
     return new Promise((resolve) => {
       const startTimeout = setTimeout(() => {
-        console.warn('Speech recognition start timeout');
+        console.warn("Speech recognition start timeout");
         this.isListening = false;
         resolve(false);
       }, 10000);
@@ -438,7 +475,7 @@ class SpeechService {
         clearTimeout(startTimeout);
         this.isListening = true;
         this.isPaused = false;
-        this.notifyStatusChange('listening');
+        this.notifyStatusChange("listening");
         // Web Speech recognition started successfully
         resolve(true);
       };
@@ -447,8 +484,8 @@ class SpeechService {
         clearTimeout(startTimeout);
         this.isListening = false;
         this.isPaused = false;
-        
-        if (event.error === 'network') {
+
+        if (event.error === "network") {
           // Network error on start - recognition may already be active
           this.handleError(event);
           resolve(false);
@@ -459,21 +496,21 @@ class SpeechService {
       };
 
       // Set up one-time listeners
-      this.recognition.addEventListener('start', onStart, { once: true });
-      this.recognition.addEventListener('error', onError, { once: true });
+      this.recognition.addEventListener("start", onStart, { once: true });
+      this.recognition.addEventListener("error", onError, { once: true });
 
       try {
         // Starting Web Speech recognition...
         this.recognition.start();
       } catch (error) {
         clearTimeout(startTimeout);
-        console.error('Exception starting speech recognition:', error);
-        
-        if (error.message && error.message.includes('network')) {
+        console.error("Exception starting speech recognition:", error);
+
+        if (error.message && error.message.includes("network")) {
           // Network exception - recognition may already be running
           resolve(false);
         } else {
-          this.handleServiceError('Failed to start speech recognition', error);
+          this.handleServiceError("Failed to start speech recognition", error);
           resolve(false);
         }
       }
@@ -487,22 +524,25 @@ class SpeechService {
   async startWhisperListening() {
     try {
       if (!this.systemAudioTranscriber) {
-        throw new Error('System audio transcriber not initialized');
+        throw new Error("System audio transcriber not initialized");
       }
-      
+
       const success = await this.systemAudioTranscriber.startTranscription();
-      
+
       if (success) {
         this.isListening = true;
         this.isPaused = false;
-        this.notifyStatusChange('listening');
-        console.log('System audio transcription started');
+        this.notifyStatusChange("listening");
+        console.log("System audio transcription started");
         return true;
       } else {
-        throw new Error('Failed to start system audio transcription');
+        throw new Error("Failed to start system audio transcription");
       }
     } catch (error) {
-      this.handleServiceError('Failed to start system audio transcription', error);
+      this.handleServiceError(
+        "Failed to start system audio transcription",
+        error
+      );
       return false;
     }
   }
@@ -514,26 +554,71 @@ class SpeechService {
   stopListening() {
     try {
       if (!this.isListening) {
-        console.warn('Speech recognition not active');
+        console.warn("Speech recognition not active");
         return false;
       }
 
-      if (this.processingMode === 'webspeech' && this.recognition) {
-        this.recognition.stop();
-      } else if (this.processingMode === 'whisper' && this.systemAudioTranscriber) {
-        this.systemAudioTranscriber.stopTranscription();
-      }
-      
+      // Set flags FIRST to prevent race conditions with event handlers
+      this.isStopping = true;
       this.isListening = false;
       this.isPaused = false;
-      
+
+      // Clear any pending processing timeout
+      if (this.processingTimeout) {
+        clearTimeout(this.processingTimeout);
+        this.processingTimeout = null;
+      }
+
+      // Clear any pending interim updates
+      if (this.pendingInterimUpdate) {
+        clearTimeout(this.pendingInterimUpdate);
+        this.pendingInterimUpdate = null;
+      }
+
+      if (this.processingMode === "webspeech" && this.recognition) {
+        try {
+          // Force stop recognition
+          this.recognition.stop();
+          
+          // Also abort to ensure it really stops
+          setTimeout(() => {
+            if (this.recognition && this.isStopping) {
+              try {
+                this.recognition.abort();
+              } catch (abortError) {
+                console.warn("Error aborting recognition:", abortError);
+              }
+            }
+          }, 100);
+        } catch (stopError) {
+          console.warn("Error stopping recognition:", stopError);
+          // Try abort as fallback
+          try {
+            this.recognition.abort();
+          } catch (abortError) {
+            console.warn("Error aborting recognition:", abortError);
+          }
+        }
+      } else if (
+        this.processingMode === "whisper" &&
+        this.systemAudioTranscriber
+      ) {
+        this.systemAudioTranscriber.stopTranscription();
+      }
+
       // Finalize any pending transcript segment
       this.finalizeCurrentSegment();
+
+      this.notifyStatusChange("stopped");
       
-      this.notifyStatusChange('stopped');
+      // Reset stopping flag after a delay to ensure all events are processed
+      setTimeout(() => {
+        this.isStopping = false;
+      }, 500);
+      
       return true;
     } catch (error) {
-      this.handleServiceError('Failed to stop speech recognition', error);
+      this.handleServiceError("Failed to stop speech recognition", error);
       return false;
     }
   }
@@ -545,23 +630,23 @@ class SpeechService {
   pauseListening() {
     try {
       if (!this.isListening || this.isPaused) {
-        console.warn('Cannot pause - not listening or already paused');
+        console.warn("Cannot pause - not listening or already paused");
         return false;
       }
 
-      if (this.processingMode === 'webspeech' && this.recognition) {
+      if (this.processingMode === "webspeech" && this.recognition) {
         this.recognition.stop();
       }
-      
+
       this.isPaused = true;
-      
+
       // Finalize current segment before pausing
       this.finalizeCurrentSegment();
-      
-      this.notifyStatusChange('paused');
+
+      this.notifyStatusChange("paused");
       return true;
     } catch (error) {
-      this.handleServiceError('Failed to pause speech recognition', error);
+      this.handleServiceError("Failed to pause speech recognition", error);
       return false;
     }
   }
@@ -573,22 +658,22 @@ class SpeechService {
   async resumeListening() {
     try {
       if (!this.isPaused) {
-        console.warn('Cannot resume - not paused');
+        console.warn("Cannot resume - not paused");
         return false;
       }
 
-      if (this.processingMode === 'webspeech' && this.recognition) {
+      if (this.processingMode === "webspeech" && this.recognition) {
         this.recognition.start();
       }
-      
+
       this.isListening = true;
       this.isPaused = false;
       this.lastSegmentTime = Date.now();
-      
-      this.notifyStatusChange('listening');
+
+      this.notifyStatusChange("listening");
       return true;
     } catch (error) {
-      this.handleServiceError('Failed to resume speech recognition', error);
+      this.handleServiceError("Failed to resume speech recognition", error);
       return false;
     }
   }
@@ -600,18 +685,18 @@ class SpeechService {
   handleResult(event) {
     try {
       const currentTime = Date.now();
-      let interimTranscript = '';
-      let finalTranscript = '';
-      
+      let interimTranscript = "";
+      let finalTranscript = "";
+
       // Process all results
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const transcript = result[0].transcript;
         const confidence = result[0].confidence || 0;
-        
+
         if (result.isFinal) {
           finalTranscript += transcript;
-          
+
           // Create transcript segment for final result
           const segment = this.createTranscriptSegment(
             transcript,
@@ -619,34 +704,39 @@ class SpeechService {
             confidence,
             true
           );
-          
+
           this.addTranscriptSegment(segment);
         } else {
           interimTranscript += transcript;
         }
       }
-      
+
       // Update current transcript with interim results
       if (interimTranscript) {
         this.currentTranscript = interimTranscript;
-        
-        // Create interim segment for real-time display
-        const interimSegment = this.createTranscriptSegment(
-          interimTranscript,
-          currentTime,
-          0.5, // Default confidence for interim results
-          false
-        );
-        
-        // Notify listeners of transcript update
-        this.notifyTranscriptUpdate(interimSegment);
+
+        // Only update if text has changed significantly or enough time has passed
+        if (this.shouldUpdateInterimText(interimTranscript, currentTime)) {
+          // Create interim segment for real-time display
+          const interimSegment = this.createTranscriptSegment(
+            interimTranscript,
+            currentTime,
+            0.5, // Default confidence for interim results
+            false
+          );
+
+          // Throttle interim updates to prevent jittery UI
+          this.throttledInterimUpdate(interimSegment);
+        }
       }
-      
+
       // Reset retry count on successful result
       this.retryCount = 0;
-      
     } catch (error) {
-      this.handleServiceError('Error processing speech recognition result', error);
+      this.handleServiceError(
+        "Error processing speech recognition result",
+        error
+      );
     }
   }
 
@@ -659,8 +749,10 @@ class SpeechService {
    * @returns {Object} Transcript segment
    */
   createTranscriptSegment(text, timestamp, confidence, isFinal) {
-    const relativeTime = this.sessionStartTime ? timestamp - this.sessionStartTime : 0;
-    
+    const relativeTime = this.sessionStartTime
+      ? timestamp - this.sessionStartTime
+      : 0;
+
     return {
       id: `segment_${timestamp}_${Math.random().toString(36).substr(2, 9)}`,
       text: text.trim(),
@@ -669,7 +761,7 @@ class SpeechService {
       confidence: confidence,
       isFinal: isFinal,
       duration: 0, // Will be calculated when segment is finalized
-      confidenceLevel: this.getConfidenceLevel(confidence)
+      confidenceLevel: this.getConfidenceLevel(confidence),
     };
   }
 
@@ -683,17 +775,17 @@ class SpeechService {
       segment.duration = segment.timestamp - this.lastSegmentTime;
       this.lastSegmentTime = segment.timestamp;
     }
-    
+
     this.transcriptSegments.push(segment);
-    
+
     // Notify listeners of new segment
     if (this.onSegmentComplete) {
       this.onSegmentComplete(segment);
     }
-    
+
     // Clear current transcript after finalizing
     if (segment.isFinal) {
-      this.currentTranscript = '';
+      this.currentTranscript = "";
     }
   }
 
@@ -708,7 +800,7 @@ class SpeechService {
         0.8, // Default confidence for manually finalized segments
         true
       );
-      
+
       this.addTranscriptSegment(segment);
     }
   }
@@ -719,10 +811,10 @@ class SpeechService {
    * @returns {string} Confidence level
    */
   getConfidenceLevel(confidence) {
-    if (confidence >= 0.9) return 'high';
-    if (confidence >= 0.7) return 'medium';
-    if (confidence >= 0.5) return 'low';
-    return 'very-low';
+    if (confidence >= 0.9) return "high";
+    if (confidence >= 0.7) return "medium";
+    if (confidence >= 0.5) return "low";
+    return "very-low";
   }
 
   /**
@@ -733,40 +825,40 @@ class SpeechService {
     const error = {
       type: event.error,
       message: this.getErrorMessage(event.error),
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    
+
     this.lastError = error;
-    
+
     // Handle different error types
     switch (event.error) {
-      case 'no-speech':
+      case "no-speech":
         // No speech detected - this is normal, just restart
         this.handleNoSpeechError();
         break;
-        
-      case 'audio-capture':
+
+      case "audio-capture":
         // Audio capture failed - critical error
         this.handleCriticalError(error);
         break;
-        
-      case 'not-allowed':
+
+      case "not-allowed":
         // Permission denied - critical error
         this.handleCriticalError(error);
         break;
-        
-      case 'network':
+
+      case "network":
         // Network error - often means "already started", reset and try again
         this.handleNetworkError(error);
         break;
-        
-      case 'aborted':
+
+      case "aborted":
         // Recognition was aborted - normal during stop/pause
         if (this.isListening && !this.isPaused) {
           this.handleRecoveryError(error);
         }
         break;
-        
+
       default:
         // Other errors - try to recover
         this.handleRecoveryError(error);
@@ -778,14 +870,16 @@ class SpeechService {
    * Handle no-speech error (restart recognition)
    */
   handleNoSpeechError() {
-    if (this.isListening && !this.isPaused) {
+    // Check if we should still be listening before restarting
+    if (this.isListening && !this.isPaused && !this.isStopping && this.recognition) {
       // Restart recognition automatically
       setTimeout(() => {
-        if (this.isListening && !this.isPaused) {
+        // Double-check flags to prevent race conditions with stop
+        if (this.isListening && !this.isPaused && this.recognition) {
           try {
             this.recognition.start();
           } catch (error) {
-            this.handleServiceError('Failed to restart after no-speech', error);
+            this.handleServiceError("Failed to restart after no-speech", error);
           }
         }
       }, 100);
@@ -799,7 +893,7 @@ class SpeechService {
   handleCriticalError(error) {
     this.isListening = false;
     this.isPaused = false;
-    this.notifyStatusChange('error');
+    this.notifyStatusChange("error");
     this.notifyError(error);
   }
 
@@ -808,54 +902,59 @@ class SpeechService {
    * @param {Object} error - Error object
    */
   handleNetworkError(error) {
-    console.log('Network error detected:', error.type, error.message);
-    
+    console.log("Network error detected:", error.type, error.message);
+
     // Network errors often mean "already started" or connection issues
     // Force reset state and try to recover
     this.isListening = false;
     this.isPaused = false;
-    
+
     // Don't retry network errors immediately - they usually indicate
     // the service is already running or there's a connection issue
     if (this.retryCount < this.config.maxRetries) {
       this.retryCount++;
-      
+
       setTimeout(async () => {
         try {
           // Force complete cleanup
           try {
             this.recognition.stop();
-          } catch (e) { /* ignore */ }
-          
+          } catch (e) {
+            /* ignore */
+          }
+
           try {
             this.recognition.abort();
-          } catch (e) { /* ignore */ }
-          
+          } catch (e) {
+            /* ignore */
+          }
+
           // Wait longer for network issues to resolve
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           // Only restart if we should still be listening
           if (!this.isListening && !this.isPaused) {
             // Create fresh recognition instance to avoid state issues
             await this.reinitializeRecognition();
-            
+
             if (this.recognition) {
               this.recognition.start();
               this.isListening = true;
             }
           }
         } catch (retryError) {
-          console.warn('Network error retry failed:', retryError);
+          console.warn("Network error retry failed:", retryError);
           // Don't treat network retry failures as critical
           this.retryCount = this.config.maxRetries; // Stop retrying
         }
       }, this.config.retryDelayMs * this.retryCount);
     } else {
       // After max retries, just notify but don't treat as critical
-      console.warn('Max network error retries reached, stopping attempts');
+      console.warn("Max network error retries reached, stopping attempts");
       this.notifyError({
         ...error,
-        message: 'Network connection issues. Please check your internet connection and try again.'
+        message:
+          "Network connection issues. Please check your internet connection and try again.",
       });
     }
   }
@@ -865,15 +964,22 @@ class SpeechService {
    * @param {Object} error - Error object
    */
   handleRecoveryError(error) {
-    if (this.retryCount < this.config.maxRetries && this.isListening && !this.isPaused) {
+    if (
+      this.retryCount < this.config.maxRetries &&
+      this.isListening &&
+      !this.isPaused &&
+      !this.isStopping &&
+      this.recognition
+    ) {
       this.retryCount++;
-      
+
       setTimeout(() => {
-        if (this.isListening && !this.isPaused) {
+        // Double-check flags to prevent race conditions with stop
+        if (this.isListening && !this.isPaused && !this.isStopping && this.recognition) {
           try {
             this.recognition.start();
           } catch (retryError) {
-            this.handleServiceError('Failed to recover from error', retryError);
+            this.handleServiceError("Failed to recover from error", retryError);
           }
         }
       }, this.config.retryDelayMs);
@@ -889,16 +995,20 @@ class SpeechService {
    */
   getErrorMessage(errorType) {
     const errorMessages = {
-      'no-speech': 'No speech detected. Make sure your microphone is working and try speaking.',
-      'aborted': 'Speech recognition was interrupted.',
-      'audio-capture': 'Could not capture audio. Please check your microphone permissions.',
-      'network': 'Network error occurred. Please check your internet connection.',
-      'not-allowed': 'Microphone access denied. Please allow microphone permissions.',
-      'service-not-allowed': 'Speech recognition service not allowed.',
-      'bad-grammar': 'Grammar error in speech recognition.',
-      'language-not-supported': 'Language not supported for speech recognition.'
+      "no-speech":
+        "No speech detected. Make sure your microphone is working and try speaking.",
+      aborted: "Speech recognition was interrupted.",
+      "audio-capture":
+        "Could not capture audio. Please check your microphone permissions.",
+      network: "Network error occurred. Please check your internet connection.",
+      "not-allowed":
+        "Microphone access denied. Please allow microphone permissions.",
+      "service-not-allowed": "Speech recognition service not allowed.",
+      "bad-grammar": "Grammar error in speech recognition.",
+      "language-not-supported":
+        "Language not supported for speech recognition.",
     };
-    
+
     return errorMessages[errorType] || `Speech recognition error: ${errorType}`;
   }
 
@@ -906,44 +1016,52 @@ class SpeechService {
    * Handle speech recognition start event
    */
   handleStart() {
-    this.notifyStatusChange('started');
+    this.notifyStatusChange("started");
   }
 
   /**
    * Handle speech recognition end event
    */
   handleEnd() {
-            // Speech recognition ended
-    
+    // Speech recognition ended
+
     // Only restart if we're still supposed to be listening and not paused
-    if (this.isListening && !this.isPaused) {
+    // Double-check the flags to prevent race conditions
+    if (this.isListening && !this.isPaused && !this.isStopping) {
       // Small delay before restarting to avoid rapid restarts
       setTimeout(() => {
-        if (this.isListening && !this.isPaused) {
+        // Check flags again after timeout to ensure stop wasn't called
+        if (this.isListening && !this.isPaused && !this.isStopping && this.recognition) {
           try {
             // Restarting speech recognition after end event
             this.recognition.start();
           } catch (error) {
-            console.warn('Failed to restart recognition after end:', error);
-            
+            console.warn("Failed to restart recognition after end:", error);
+
             // If restart fails, try to reinitialize
-            if (error.message && error.message.includes('network')) {
+            if (error.message && error.message.includes("network")) {
               // Network error on restart, will reinitialize
               this.reinitializeRecognition().then(() => {
-                if (this.recognition && this.isListening && !this.isPaused) {
+                if (this.recognition && this.isListening && !this.isPaused && !this.isStopping) {
                   try {
                     this.recognition.start();
                   } catch (retryError) {
-                    console.error('Failed to restart after reinitialize:', retryError);
+                    console.error(
+                      "Failed to restart after reinitialize:",
+                      retryError
+                    );
                   }
                 }
               });
             } else {
-              this.handleServiceError('Failed to restart recognition', error);
+              this.handleServiceError("Failed to restart recognition", error);
             }
           }
         }
       }, 150); // Slightly longer delay
+    } else {
+      // Recognition properly stopped, notify status
+      this.notifyStatusChange("stopped");
     }
   }
 
@@ -951,14 +1069,14 @@ class SpeechService {
    * Handle speech start event
    */
   handleSpeechStart() {
-    this.notifyStatusChange('speech-detected');
+    this.notifyStatusChange("speech-detected");
   }
 
   /**
    * Handle speech end event
    */
   handleSpeechEnd() {
-    this.notifyStatusChange('speech-ended');
+    this.notifyStatusChange("speech-ended");
   }
 
   /**
@@ -968,14 +1086,14 @@ class SpeechService {
    */
   handleServiceError(message, error) {
     console.error(message, error);
-    
+
     const serviceError = {
-      type: 'service-error',
+      type: "service-error",
       message: message,
       originalError: error,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    
+
     this.lastError = serviceError;
     this.notifyError(serviceError);
   }
@@ -1002,9 +1120,9 @@ class SpeechService {
    */
   getFullTranscript() {
     return this.transcriptSegments
-      .filter(segment => segment.isFinal)
-      .map(segment => segment.text)
-      .join(' ');
+      .filter((segment) => segment.isFinal)
+      .map((segment) => segment.text)
+      .join(" ");
   }
 
   /**
@@ -1017,10 +1135,12 @@ class SpeechService {
       isListening: this.isListening,
       isPaused: this.isPaused,
       segmentCount: this.transcriptSegments.length,
-      sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,
+      sessionDuration: this.sessionStartTime
+        ? Date.now() - this.sessionStartTime
+        : 0,
       lastError: this.lastError,
       retryCount: this.retryCount,
-      isSupported: this.isWebSpeechSupported()
+      isSupported: this.isWebSpeechSupported(),
     };
   }
 
@@ -1030,7 +1150,7 @@ class SpeechService {
    */
   updateConfig(newConfig) {
     this.config = { ...this.config, ...newConfig };
-    
+
     // Update recognition settings if initialized
     if (this.recognition) {
       this.recognition.lang = this.config.language;
@@ -1038,6 +1158,93 @@ class SpeechService {
       this.recognition.interimResults = this.config.interimResults;
       this.recognition.maxAlternatives = this.config.maxAlternatives;
     }
+  }
+
+  /**
+   * Check if interim text should be updated based on content changes and timing
+   * @param {string} newText - New interim text
+   * @param {number} currentTime - Current timestamp
+   * @returns {boolean} Whether to update
+   */
+  shouldUpdateInterimText(newText, currentTime) {
+    // Always update if text is significantly different
+    if (this.getTextDifference(this.lastInterimText, newText) > 0.3) {
+      return true;
+    }
+
+    // Update if enough time has passed since last update
+    if (currentTime - this.lastInterimUpdate >= this.interimUpdateThrottle) {
+      return true;
+    }
+
+    // Update if text is much longer (new words added)
+    if (newText.length > this.lastInterimText.length + 5) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate text difference ratio between two strings
+   * @param {string} oldText - Previous text
+   * @param {string} newText - New text
+   * @returns {number} Difference ratio (0-1)
+   */
+  getTextDifference(oldText, newText) {
+    if (!oldText || !newText) return 1;
+
+    const oldWords = oldText.toLowerCase().split(/\s+/);
+    const newWords = newText.toLowerCase().split(/\s+/);
+
+    // Simple word-based difference calculation
+    const maxLength = Math.max(oldWords.length, newWords.length);
+    if (maxLength === 0) return 0;
+
+    let differences = 0;
+    for (let i = 0; i < maxLength; i++) {
+      if (oldWords[i] !== newWords[i]) {
+        differences++;
+      }
+    }
+
+    return differences / maxLength;
+  }
+
+  /**
+   * Throttled interim update to prevent jittery UI
+   * @param {Object} segment - Interim transcript segment
+   */
+  throttledInterimUpdate(segment) {
+    // Clear any pending update
+    if (this.pendingInterimUpdate) {
+      clearTimeout(this.pendingInterimUpdate);
+    }
+
+    const now = Date.now();
+    const timeSinceLastUpdate = now - this.lastInterimUpdate;
+
+    if (timeSinceLastUpdate >= this.interimUpdateThrottle) {
+      // Update immediately if enough time has passed
+      this.executeInterimUpdate(segment);
+    } else {
+      // Schedule update for later
+      const delay = this.interimUpdateThrottle - timeSinceLastUpdate;
+      this.pendingInterimUpdate = setTimeout(() => {
+        this.executeInterimUpdate(segment);
+        this.pendingInterimUpdate = null;
+      }, delay);
+    }
+  }
+
+  /**
+   * Execute the interim update
+   * @param {Object} segment - Interim transcript segment
+   */
+  executeInterimUpdate(segment) {
+    this.lastInterimUpdate = Date.now();
+    this.lastInterimText = segment.text;
+    this.notifyTranscriptUpdate(segment);
   }
 
   /**
@@ -1059,7 +1266,7 @@ class SpeechService {
       this.onStatusChange({
         status,
         timestamp: Date.now(),
-        serviceStatus: this.getStatus()
+        serviceStatus: this.getStatus(),
       });
     }
   }
@@ -1116,22 +1323,21 @@ class SpeechService {
         try {
           this.recognition.stop();
         } catch (e) {
-          console.log('Stop failed during cleanup:', e.message);
+          console.log("Stop failed during cleanup:", e.message);
         }
-        
+
         // Then abort to force stop
         try {
           this.recognition.abort();
         } catch (e) {
-          console.log('Abort failed during cleanup:', e.message);
+          console.log("Abort failed during cleanup:", e.message);
         }
       }
-      
+
       // Wait for cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
+      await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (error) {
-      console.warn('Error during force cleanup:', error);
+      console.warn("Error during force cleanup:", error);
     }
   }
 
@@ -1142,36 +1348,39 @@ class SpeechService {
     try {
       // Remove old event listeners
       if (this.recognition) {
-        this.recognition.removeEventListener('result', this.handleResult);
-        this.recognition.removeEventListener('error', this.handleError);
-        this.recognition.removeEventListener('start', this.handleStart);
-        this.recognition.removeEventListener('end', this.handleEnd);
-        this.recognition.removeEventListener('speechstart', this.handleSpeechStart);
-        this.recognition.removeEventListener('speechend', this.handleSpeechEnd);
+        this.recognition.removeEventListener("result", this.handleResult);
+        this.recognition.removeEventListener("error", this.handleError);
+        this.recognition.removeEventListener("start", this.handleStart);
+        this.recognition.removeEventListener("end", this.handleEnd);
+        this.recognition.removeEventListener(
+          "speechstart",
+          this.handleSpeechStart
+        );
+        this.recognition.removeEventListener("speechend", this.handleSpeechEnd);
       }
 
       // Create new recognition instance
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
       this.recognition = new SpeechRecognition();
-      
+
       // Configure recognition settings
       this.recognition.continuous = this.config.continuous;
       this.recognition.interimResults = this.config.interimResults;
       this.recognition.lang = this.config.language;
       this.recognition.maxAlternatives = this.config.maxAlternatives;
-      
+
       // Set up event listeners
-      this.recognition.addEventListener('result', this.handleResult);
-      this.recognition.addEventListener('error', this.handleError);
-      this.recognition.addEventListener('start', this.handleStart);
-      this.recognition.addEventListener('end', this.handleEnd);
-      this.recognition.addEventListener('speechstart', this.handleSpeechStart);
-      this.recognition.addEventListener('speechend', this.handleSpeechEnd);
-      
-      console.log('Speech recognition reinitialized');
+      this.recognition.addEventListener("result", this.handleResult);
+      this.recognition.addEventListener("error", this.handleError);
+      this.recognition.addEventListener("start", this.handleStart);
+      this.recognition.addEventListener("end", this.handleEnd);
+      this.recognition.addEventListener("speechstart", this.handleSpeechStart);
+      this.recognition.addEventListener("speechend", this.handleSpeechEnd);
+
       
     } catch (error) {
-      console.error('Failed to reinitialize recognition:', error);
+      
       this.recognition = null;
     }
   }
@@ -1188,7 +1397,7 @@ class SpeechService {
     } catch (error) {
       // Ignore errors during reset
     }
-    
+
     this.isListening = false;
     this.isPaused = false;
     this.retryCount = 0;
@@ -1207,24 +1416,40 @@ class SpeechService {
       // Cleanup Web Speech API
       if (this.recognition) {
         this.resetRecognitionState();
-        this.recognition.removeEventListener('result', this.handleResult);
-        this.recognition.removeEventListener('error', this.handleError);
-        this.recognition.removeEventListener('start', this.handleStart);
-        this.recognition.removeEventListener('end', this.handleEnd);
-        this.recognition.removeEventListener('speechstart', this.handleSpeechStart);
-        this.recognition.removeEventListener('speechend', this.handleSpeechEnd);
+        this.recognition.removeEventListener("result", this.handleResult);
+        this.recognition.removeEventListener("error", this.handleError);
+        this.recognition.removeEventListener("start", this.handleStart);
+        this.recognition.removeEventListener("end", this.handleEnd);
+        this.recognition.removeEventListener(
+          "speechstart",
+          this.handleSpeechStart
+        );
+        this.recognition.removeEventListener("speechend", this.handleSpeechEnd);
         this.recognition = null;
       }
 
-      // Cleanup Whisper service
+      // Cleanup Whisper service with timeout
       if (this.whisperService) {
-        await this.whisperService.cleanup();
+        try {
+          const cleanupPromise = this.whisperService.cleanup();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Whisper cleanup timeout')), 3000)
+          );
+          
+          await Promise.race([cleanupPromise, timeoutPromise]);
+        } catch (error) {
+          console.warn('Whisper cleanup failed or timed out:', error);
+        }
         this.whisperService = null;
       }
 
       // Cleanup system audio transcriber
       if (this.systemAudioTranscriber) {
-        this.systemAudioTranscriber.cleanup();
+        try {
+          await this.systemAudioTranscriber.cleanup();
+        } catch (error) {
+          
+        }
         this.systemAudioTranscriber = null;
       }
 
@@ -1240,11 +1465,17 @@ class SpeechService {
         this.processingTimeout = null;
       }
 
+      // Clear any pending interim updates
+      if (this.pendingInterimUpdate) {
+        clearTimeout(this.pendingInterimUpdate);
+        this.pendingInterimUpdate = null;
+      }
+
       // Reset state
       this.isListening = false;
       this.isPaused = false;
       this.isInitialized = false;
-      this.currentTranscript = '';
+      this.currentTranscript = "";
       this.transcriptSegments = [];
       this.sessionStartTime = null;
       this.lastSegmentTime = null;
@@ -1253,11 +1484,15 @@ class SpeechService {
       this.audioStream = null;
       this.audioBuffer = [];
       this.isProcessingAudio = false;
-      this.processingMode = 'webspeech';
+      this.processingMode = "webspeech";
 
-      
+      // Reset real-time update state
+      this.lastInterimUpdate = 0;
+      this.pendingInterimUpdate = null;
+      this.lastInterimText = "";
+      this.isStopping = false;
     } catch (error) {
-      this.handleServiceError('Error during cleanup', error);
+      this.handleServiceError("Error during cleanup", error);
     }
   }
 }

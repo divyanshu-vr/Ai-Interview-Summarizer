@@ -405,28 +405,54 @@ class AudioCaptureService {
    */
   async cleanup() {
     try {
-      // Stop recording if active
+      // Stop recording if active with timeout
       if (this.isRecording) {
-        await this.stopRecording();
+        try {
+          const stopPromise = this.stopRecording();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Stop recording timeout')), 2000)
+          );
+          
+          await Promise.race([stopPromise, timeoutPromise]);
+        } catch (error) {
+          console.warn('Stop recording failed or timed out:', error);
+        }
       }
 
       // Stop all audio tracks
       if (this.audioStream) {
-        this.audioStream.getTracks().forEach(track => track.stop());
+        try {
+          this.audioStream.getTracks().forEach(track => track.stop());
+        } catch (error) {
+          console.warn('Error stopping audio tracks:', error);
+        }
         this.audioStream = null;
       }
 
-      // Close audio context
+      // Close audio context with timeout
       if (this.audioContext && this.audioContext.state !== 'closed') {
-        await this.audioContext.close();
+        try {
+          const closePromise = this.audioContext.close();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Audio context close timeout')), 2000)
+          );
+          
+          await Promise.race([closePromise, timeoutPromise]);
+        } catch (error) {
+          console.warn('Audio context close failed or timed out:', error);
+        }
         this.audioContext = null;
       }
 
       // Clean up MediaRecorder
       if (this.mediaRecorder) {
-        this.mediaRecorder.removeEventListener('dataavailable', this.handleDataAvailable);
-        this.mediaRecorder.removeEventListener('stop', this.handleRecordingStop);
-        this.mediaRecorder.removeEventListener('error', this.handleRecordingError);
+        try {
+          this.mediaRecorder.removeEventListener('dataavailable', this.handleDataAvailable);
+          this.mediaRecorder.removeEventListener('stop', this.handleRecordingStop);
+          this.mediaRecorder.removeEventListener('error', this.handleRecordingError);
+        } catch (error) {
+          console.warn('Error removing MediaRecorder listeners:', error);
+        }
         this.mediaRecorder = null;
       }
 
@@ -440,7 +466,11 @@ class AudioCaptureService {
 
       console.log('AudioCaptureService cleanup completed');
     } catch (error) {
-      this.handleError('Error during cleanup', error);
+      console.error('Error during cleanup:', error);
+      // Force reset state even if cleanup fails
+      this.isRecording = false;
+      this.isPaused = false;
+      this.audioLevel = 0;
     }
   }
 }

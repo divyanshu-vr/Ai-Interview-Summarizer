@@ -344,16 +344,30 @@ class WhisperService {
    * Cleanup resources
    */
   async cleanup() {
+    // Prevent multiple cleanup calls
+    if (!this.worker && !this.isInitialized) {
+      return;
+    }
+
     try {
-      // Send cleanup message to worker
+      // Send cleanup message to worker with timeout
       if (this.worker && this.isInitialized) {
-        await this.sendMessage('cleanup');
+        const cleanupPromise = this.sendMessage('cleanup');
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Cleanup timeout')), 2000)
+        );
+        
+        try {
+          await Promise.race([cleanupPromise, timeoutPromise]);
+        } catch (error) {
+          console.warn('Cleanup message failed or timed out:', error);
+        }
       }
     } catch (error) {
       console.warn('Cleanup message failed:', error);
     }
 
-    // Terminate worker
+    // Force terminate worker
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -370,7 +384,7 @@ class WhisperService {
     this.isInitializing = false;
     this.messageId = 0;
 
-    console.log('WhisperService cleaned up');
+    
   }
 }
 

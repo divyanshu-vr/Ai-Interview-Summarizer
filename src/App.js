@@ -2,6 +2,7 @@ import React from 'react';
 import ThemeProvider, { useThemeMode } from './components/ThemeProvider';
 import NotificationProvider from './components/NotificationSystem';
 import MainDashboard from './components/MainDashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
 
 /**
@@ -24,17 +25,19 @@ const AppContent = () => {
  */
 function App() {
   return (
-    <ThemeProvider>
-      <NotificationProvider 
-        maxNotifications={5}
-        position="bottom-right"
-        stackSpacing={70}
-      >
-        <div className="App">
-          <AppContent />
-        </div>
-      </NotificationProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <NotificationProvider 
+          maxNotifications={5}
+          position="bottom-right"
+          stackSpacing={70}
+        >
+          <div className="App">
+            <AppContent />
+          </div>
+        </NotificationProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

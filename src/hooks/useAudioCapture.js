@@ -163,12 +163,22 @@ const useAudioCapture = () => {
 
     setError(null);
     
+    // Update state immediately to prevent UI hanging
+    setIsRecording(false);
+    setIsPaused(false);
+    recordingStartTimeRef.current = null;
+    setRecordingDuration(0);
+    
     try {
-      const audioBlob = await audioServiceRef.current.stopRecording();
-      recordingStartTimeRef.current = null;
-      setRecordingDuration(0);
+      const stopPromise = audioServiceRef.current.stopRecording();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Stop recording timeout')), 3000)
+      );
+      
+      const audioBlob = await Promise.race([stopPromise, timeoutPromise]);
       return audioBlob;
     } catch (err) {
+      console.warn('Stop recording failed or timed out:', err);
       setError({
         message: 'Failed to stop recording',
         error: err
